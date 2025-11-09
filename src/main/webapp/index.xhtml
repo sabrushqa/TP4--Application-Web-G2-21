@@ -1,64 +1,168 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml"
-      xmlns:h="jakarta.faces.html"
-      xmlns:f="jakarta.faces.core"
-      xmlns:p="http://primefaces.org/ui">
+      xmlns:h="http://xmlns.jcp.org/jsf/html"
+      xmlns:f="http://xmlns.jcp.org/jsf/core">
+
 <h:head>
-    <h:outputStylesheet name="css/mycsslayout.css"/>
-    <h:outputScript name="js/script.js" target="head"/>
-    <title>Conversation</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Assistant RAG</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .conversation-area {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 400px;
+            max-height: 500px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .input-group input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background: #2196f3;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1976d2;
+        }
+
+        .btn-secondary {
+            background: #666;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #555;
+        }
+
+        .error-message {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            color: #c62828;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .examples {
+            background: #fff8e1;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+
+        .examples h3 {
+            margin-top: 0;
+            color: #f57f17;
+        }
+
+        .examples ul {
+            margin: 10px 0 0 20px;
+        }
+    </style>
 </h:head>
+
 <h:body>
-    <f:view>
+    <div class="container">
+        <h1>🤖 Assistant RAG Intelligent</h1>
 
-        <h:messages errorStyle="color: red" showDetail="true" showSummary="false" globalOnly="true"/>
+        <div class="info-box">
+            <strong>ℹ️ Système RAG avec Routage</strong><br/>
+            Ce système utilise plusieurs documents PDF pour répondre à vos questions.
+            Le routage intelligent décide automatiquement quand utiliser les documents.
+        </div>
 
-        <h:form id="form">
+        <h:form>
+            <h:messages styleClass="error-message" />
 
-            <p:outputLabel for="rolesysteme" value="Rôle de l'API : "/>
-            <p:selectOneMenu id="rolesysteme" value="#{bb.roleSysteme}" editable="true"
-                             required="true" requiredMessage="Vous devez indiquer le rôle de l'API"
-                             disabled="#{! bb.roleSystemeChangeable}">
-                <f:selectItems value="#{bb.rolesSysteme}"/>
-            </p:selectOneMenu>
-            <h:message for="rolesysteme" errorStyle="color: red" />
+            <div class="conversation-area">#{ragBean.conversation}</div>
 
-            <h:outputText value="  "/>
-            <h:commandButton value="Nouveau chat" action="#{bb.nouveauChat}" />
+            <div class="input-group">
+                <h:inputText
+                        id="question"
+                        value="#{ragBean.question}"
+                        placeholder="Posez votre question ici..."
+                />
+                <h:commandButton
+                        value="Envoyer"
+                        action="#{ragBean.envoyer}"
+                        styleClass="btn btn-primary"
+                />
+                <h:commandButton
+                        value="Nouveau chat"
+                        action="#{ragBean.nouveauChat}"
+                        styleClass="btn btn-secondary"
+                />
+            </div>
 
-            <h:panelGrid id="paneltotal" columns="2" columnClasses="topAligned,topAligned">
-
-                <h:panelGrid id="panelgauche" columns="1">
-                    <h:panelGrid id="questionetreponse" columns="1">
-                        <h:panelGroup>
-                            <h:outputText value="Question :"/>
-                            <button type="button" onclick="copyToClipboard('form:question')">Copier question</button>
-                            <button type="button" onclick="document.getElementById('form:question').value=''; document.getElementById('form:reponse').value=''">Effacer question et réponse</button>
-                        </h:panelGroup>
-                        <h:inputTextarea id="question" value="#{bb.question}" title="Question"
-                                         cols="50" rows="5"/>
-                        <h:commandButton value="Envoyer la question" action="#{bb.envoyer}"/>
-                        <h:panelGroup>
-                            <h:outputText value="Réponse :"/>
-                            <button type="button" onclick="copyToClipboard('form:reponse')">Copier réponse</button>
-                        </h:panelGroup>
-                        <h:inputTextarea id="reponse" value="#{bb.reponse}" title="Réponse"
-                                         cols="50" rows="15"/>
-                    </h:panelGrid>
-
-                </h:panelGrid>
-                <h:panelGrid id="paneldroit" columns="1" style="vertical-align: top;">
-                    <h:panelGroup>
-                        <h:outputText value="Conversation :"/>
-                        <button type="button" onclick="copyToClipboard('form:conversation')">Copier conversation</button>
-                    </h:panelGroup>
-                    <h:inputTextarea id="conversation" rows="30" cols="50" readonly="true"
-                                     value="#{bb.conversation}" title="Conversation entière"/>
-                </h:panelGrid>
-
-            </h:panelGrid>
+            <div class="examples">
+                <h3>💡 Exemples de questions</h3>
+                <ul>
+                    <li>Qu'est-ce que le RAG ?</li>
+                    <li>Comment fonctionne l'embedding dans LangChain4j ?</li>
+                    <li>Explique-moi le concept de chunking</li>
+                    <li>Quelle est la différence entre un ContentRetriever et un QueryRouter ?</li>
+                </ul>
+            </div>
         </h:form>
-    </f:view>
+    </div>
 </h:body>
 </html>
