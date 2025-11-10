@@ -7,6 +7,7 @@ import dev.langchain4j.data.document.loader.FileSystemDocumentLoader;
 import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -21,10 +22,12 @@ import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import dev.langchain4j.rag.query.router.LanguageModelQueryRouter;
 import dev.langchain4j.rag.query.router.QueryRouter;
 import dev.langchain4j.service.AiServices;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 
+import java.io.File;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -42,10 +45,6 @@ public class LlmClient {
     private Assistant assistant;
     private ChatMemory memory;
 
-    // --- Configuration des documents et des modèles ---
-    private static final Path DOC_RAG = Paths.get("src/main/resources/support_rag.pdf");
-    private static final Path DOC_AUTRE = Paths.get("src/main/resources/MobileAI-2.pdf");
-
     // Le Logger est utilisé pour voir les étapes de LangChain4j (Routage, LLM calls)
     private static final Logger LOGGER = Logger.getLogger(LlmClient.class.getName());
 
@@ -60,8 +59,10 @@ public class LlmClient {
         }
 
         // 2. Initialisation des modèles et du ChatModel avec Logging
+        // Modèle d'Embedding (local)
         EmbeddingModel embeddingModel = new AllMiniLmL6V2EmbeddingModel();
 
+        // Modèle de Chat (Gemini)
         ChatModel chatModel = GoogleAiGeminiChatModel.builder()
                 .apiKey(llmKey)
                 .modelName("gemini-2.5-flash")
@@ -69,33 +70,54 @@ public class LlmClient {
                 .logRequestsAndResponses(true) // Active le logging détaillé (Fonctionnalité 1)
                 .build();
 
-        // 3. Ingestion des documents et préparation des Retrievers
-        EmbeddingStore<TextSegment> store1 = ingestDocument(DOC_RAG, embeddingModel);
-        EmbeddingStore<TextSegment> store2 = ingestDocument(DOC_AUTRE, embeddingModel);
+        // 3. INGESTION ET PRÉPARATION DES RETRIEVERS (RAG/Routage)
+        try {
+            // --- CORRECTION CRITIQUE DU CHEMIN DES FICHIERS ---
+            // Utilise ClassLoader pour trouver les ressources dans le classpath du WAR
+            URL url1 = LlmClient.class.getClassLoader().getResource("support_rag.pdf");
+            URL url2 = LlmClient.class.getClassLoader().getResource("MobileAI-2.pdf");
 
-        ContentRetriever retriever1 = createContentRetriever(store1, embeddingModel);
-        ContentRetriever retriever2 = createContentRetriever(store2, embeddingModel);
+            if (url1 == null || url2 == null) {
+                LOGGER.severe("ERREUR FATALE: Les fichiers PDF sont introuvables. Sont-ils dans src/main/resources/ ?");
+                this.assistant = null;
+                return;
+            }
 
-        // 4. Configuration du Routage (Fonctionnalité 2)
-        Map<ContentRetriever, String> retrieverDescriptions = new HashMap<>();
-        retrieverDescriptions.put(retriever1,
-                "Documents techniques sur l'intelligence artificielle, le RAG, LangChain4j, et les LLM.");
-        retrieverDescriptions.put(retriever2,
-                "Documents sur le développement d'applications mobiles, Android, Kotlin et bases de données Room.");
+            // Conversion des URL en Path pour FileSystemDocumentLoader
+            Path docRAGPath = Paths.get(url1.toURI());
+            Path docMobilePath = Paths.get(url2.toURI());
 
-        QueryRouter queryRouter = new LanguageModelQueryRouter(chatModel, retrieverDescriptions);
+            EmbeddingStore<TextSegment> store1 = ingestDocument(docRAGPath, embeddingModel);
+            EmbeddingStore<TextSegment> store2 = ingestDocument(docMobilePath, embeddingModel);
 
-        RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
-                .queryRouter(queryRouter)
-                .build();
+            ContentRetriever retriever1 = createContentRetriever(store1, embeddingModel);
+            ContentRetriever retriever2 = createContentRetriever(store2, embeddingModel);
 
-        // 5. Construction de l'Assistant
-        this.memory = MessageWindowChatMemory.withMaxMessages(10);
-        this.assistant = AiServices.builder(Assistant.class)
-                .chatModel(chatModel)
-                .chatMemory(memory)
-                .retrievalAugmentor(retrievalAugmentor)
-                .build();
+            // 4. Configuration du Routage (Fonctionnalité 2)
+            Map<ContentRetriever, String> retrieverDescriptions = new HashMap<>();
+            retrieverDescriptions.put(retriever1,
+                    "Documents techniques sur l'intelligence artificielle, le RAG, LangChain4j, et les LLM.");
+            retrieverDescriptions.put(retriever2,
+                    "Documents sur le développement d'applications mobiles, Android, Kotlin et bases de données Room.");
+
+            QueryRouter queryRouter = new LanguageModelQueryRouter(chatModel, retrieverDescriptions);
+
+            RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
+                    .queryRouter(queryRouter)
+                    .build();
+
+            // 5. Construction de l'Assistant
+            this.memory = MessageWindowChatMemory.withMaxMessages(10);
+            this.assistant = AiServices.builder(Assistant.class)
+                    .chatModel(chatModel)
+                    .chatMemory(memory)
+                    .retrievalAugmentor(retrievalAugmentor)
+                    .build();
+
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Erreur grave lors de l'initialisation du RAG/Routage.", e);
+            this.assistant = null;
+        }
     }
 
     /**
@@ -114,6 +136,7 @@ public class LlmClient {
             Path documentPath,
             EmbeddingModel embeddingModel) {
 
+        // Vérification de l'existence du fichier (utile même après ClassLoader)
         if (!documentPath.toFile().exists()) {
             LOGGER.warning("Le document n'existe pas : " + documentPath + ". Création d'un store vide.");
             return new InMemoryEmbeddingStore<>();
@@ -166,7 +189,7 @@ public class LlmClient {
      */
     public String PoserQuestion(String question) {
         if (assistant == null) {
-            return "Erreur de configuration: L'assistant n'a pas pu être initialisé (vérifiez la clé GEMINI).";
+            return "Erreur de configuration: L'assistant n'a pas pu être initialisé (vérifiez la clé GEMINI et les fichiers PDF).";
         }
         try {
             return assistant.chat(question);
